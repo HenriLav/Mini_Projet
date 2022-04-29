@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leaflet.heat demo</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.8.0/dist/leaflet.css"/>    
+    <script src="https://unpkg.com/leaflet@1.8.0/dist/leaflet.js"></script>
+    <script type="text/javascript" src="https://www.datavis.fr/lib/leaflet/leaflet-heat.js"></script>
+    <style>
+        #map { width: 1200px; height: 710px; }
+        body { font: 16px/1.4 "Helvetica Neue", Arial, sans-serif; }
+        .ghbtns { position: relative; top: 4px; margin-left: 5px; }
+        a { color: #0077ff; }
+    </style>
+</head>
+<body>
+
+
+
+<div id="map"></div>
+
+<script>
+    var Carte = function() {
+    var NorthWest = L.latLng(90.00, -190.00);
+    var SouthEast = L.latLng(-90.00, 190.00);
+    var center = [7.99, 4.16];
+    var zoom = 2;
+    var minZoom = 2;
+    var maxZoom = 8;
+    var maxBounds;
+    var map;
+
+    var mbAttr = 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>Tiles © Esri — Source: Esri, i-cubed, USDA, USGS';
+    var mbUrl = 'https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+    var dark;
+    var Esri_WorldImagery;
+    var baseLayers;
+
+    var geoJSON;
+    var heatMapData = [];
+    var heatMapLayer;
+    var markerMapLayer;
+
+    var initialisationDarkMode = function() {
+        dark = L.tileLayer(mbUrl, {id: 'mapbox/dark-v8', tileSize: 512, zoomOffset: -1, attribution: mbAttr});
+        baseLayers = {
+            "Dark": dark,
+            "Satellite": Esri_WorldImagery,
+            
+        };
+        L.control.layers(baseLayers).addTo(map);
+    }
+
+    var isInBounds = function (latlng, bounds) {
+        var plusAOuestQueEst = bounds._northEast.lat > latlng.lat;
+        var plusAEstQueOuest = bounds._southWest.lat < latlng.lat;
+        var plusAuSudQueLeNord = bounds._northEast.lng > latlng.lng;
+        var plusAuNordQueLeSud = bounds._southWest.lng < latlng.lng;
+        return plusAEstQueOuest && plusAOuestQueEst && plusAuNordQueLeSud && plusAuSudQueLeNord;
+    }
+
+    var calculerMarkers = function(bounds) {
+        markerMapLayer =  L.geoJson(geoJSON, {
+            pointToLayer: function (feature, latlng) {
+            	var mag = feature.properties.mag;
+            	var date = feature.properties.time;
+                if (isInBounds(latlng, bounds))
+                    return L.marker(latlng, {})
+                    .bindPopup("Séisme de magnitude "+ mag + " sur l'échelle de Richter, enregistré le: "+ date)
+                    .openPopup();
+                }
+        });
+    }
+
+    var recupererGeoJSON = async function() {
+        fetch('1999to2022clean.geojson')
+        .then(function(response) {
+            return response.text();
+        })
+        .then(function(json) {
+            geoJSON = JSON.parse(json)
+            creerZonesChaleur();
+            afficherZonesChaleur();
+        });
+    }
+
+    var initialisation = function() {
+        maxBounds = L.latLngBounds(NorthWest, SouthEast);
+        map = L.map('map', {
+            center,
+            zoom,
+            minZoom,
+            maxZoom,
+            maxBounds
+        });
+
+        Esri_WorldImagery = L.tileLayer('http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {tileSize: 512, zoomOffset: -1, attribution: mbAttr});
+        
+        L.control.scale({
+            metric:true,
+            imperial: false,
+            position: 'bottomleft'
+        }).addTo(map);
+        map.addLayer(Esri_WorldImagery);
+
+    }
+
+    var afficherZonesChaleur = function() {
+        map.addLayer(heatMapLayer);
+    }
+
+    var creerZonesChaleur = function(){
+        geoJSON.features.forEach(function (feature) {
+            heatMapData.push(
+                new L.latLng(
+                +feature.geometry.coordinates[1], 
+                +feature.geometry.coordinates[0],
+                +feature.properties.mag / 10
+                )
+            )
+        })
+        heatMapLayer = L.heatLayer(heatMapData, {
+            radius: 14,
+            minOpacity: 0.4,
+            gradient: {0.45: "#abdda4", 0.5:"#b9e3a9", 0.52:"#ccebaf",0.54: "#dbf1b4", 0.56:"#ecf8b9", 0.58:"#ffffbf",0.6: "#ffeda9", 0.62:"#ffd993", 0.64:"#fec278",0.66: "#fdae61", 0.68:"#f48b51", 0.7:"#ec6840",0.72: "#e2422f", 0.75:"#dd2e25", 0.9:"#d7191c"}
+        })
+    }
+
+    var update = function (e) {
+        if (map.getZoom() < 6){
+            if (markerMapLayer != undefined)
+                map.removeLayer(markerMapLayer)
+            map.addLayer(heatMapLayer);
+        }
+        else {
+            calculerMarkers(e.target.getBounds())
+            map.removeLayer(heatMapLayer)
+            map.addLayer(markerMapLayer);
+        }
+    }
+
+    var bulkAction = function() {
+        map.on('zoomend', function(e) {
+            update(e);
+        });
+        map.on('mouseup', function(e) {
+            update(e);
+        });
+    }
+
+    return {
+        initialisation,
+        initialisationDarkMode,
+        recupererGeoJSON,
+        bulkAction,
+    }
+}
+
+
+const carte = Carte();
+carte.initialisation();
+carte.initialisationDarkMode();
+carte.recupererGeoJSON();
+carte.bulkAction();
+
+</script>
+
+</body>
+</html>
